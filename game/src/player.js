@@ -1,24 +1,23 @@
-// tactical recoil and movement tune
-// Player movement: acceleration, friction, gravity, crouch and jump, resolved as a box against
-// the world's colliders one axis at a time, so a wall never swallows the player.
+// Kinematic tactical player controller: acceleration, crouching, sprinting, health, armor and damage.
 import * as THREE from 'three';
 
-const RADIUS = 0.34;
+const RADIUS = 0.35;
 const STAND_HEIGHT = 1.72;
 const CROUCH_HEIGHT = 1.12;
 const STAND_EYE = 1.6;
 const CROUCH_EYE = 1.02;
 const WALK_SPEED = 5.2;
+const SPRINT_SPEED = 7.4;
 const CROUCH_SPEED = 2.4;
-const GROUND_ACCEL = 42;
+const GROUND_ACCEL = 44;
 const AIR_ACCEL = 9;
-const FRICTION = 9;
+const FRICTION = 9.5;
 const GRAVITY = 20;
 const JUMP_SPEED = 6.2;
 
 export function createPlayer(colliders) {
   const player = {
-    position: new THREE.Vector3(0, 0, 9.5),
+    position: new THREE.Vector3(0, 0, 14.5),
     velocity: new THREE.Vector3(),
     yaw: 0,
     pitch: 0,
@@ -26,12 +25,14 @@ export function createPlayer(colliders) {
     onGround: true,
     crouching: false,
     height: STAND_HEIGHT,
+    health: 100,
+    armor: 100,
+    alive: true,
   };
+
   const probe = new THREE.Box3();
   const wish = new THREE.Vector3();
 
-  // lift keeps the feet and the crown out of the horizontal tests, so standing on the floor
-  // is not read as walking into a wall.
   function overlaps(x, y, z, height, lift) {
     probe.min.set(x - RADIUS, y + lift, z - RADIUS);
     probe.max.set(x + RADIUS, y + height - lift, z + RADIUS);
@@ -49,7 +50,38 @@ export function createPlayer(colliders) {
     player.yaw += yawKick;
   }
 
+  function takeDamage(amount) {
+    if (!player.alive) return false;
+    let actualDamage = amount;
+    if (player.armor > 0) {
+      const absorbed = Math.min(player.armor, amount * 0.5);
+      player.armor -= absorbed;
+      actualDamage = amount - absorbed;
+    }
+    player.health -= actualDamage;
+    if (player.health <= 0) {
+      player.health = 0;
+      player.alive = false;
+      return true; // killed
+    }
+    return false;
+  }
+
+  function respawn(spawnPoint) {
+    player.health = 100;
+    player.armor = 100;
+    player.alive = true;
+    player.velocity.set(0, 0, 0);
+    player.position.copy(spawnPoint);
+    player.pitch = 0;
+    player.yaw = 0;
+    player.crouching = false;
+    player.height = STAND_HEIGHT;
+  }
+
   function step(dt, keys) {
+    if (!player.alive) return;
+
     const crouching = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC');
     if (crouching && !player.crouching) {
       player.crouching = true;
@@ -71,10 +103,11 @@ export function createPlayer(colliders) {
     }
 
     const sprinting = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !player.crouching;
-    const speed = player.crouching ? CROUCH_SPEED : (sprinting ? 7.5 : WALK_SPEED);
+    const speed = player.crouching ? CROUCH_SPEED : (sprinting ? SPRINT_SPEED : WALK_SPEED);
     const blend = Math.min(1, (player.onGround ? GROUND_ACCEL : AIR_ACCEL) * dt / speed);
     player.velocity.x += (wish.x * speed - player.velocity.x) * blend;
     player.velocity.z += (wish.z * speed - player.velocity.z) * blend;
+
     if (player.onGround && !wish.lengthSq()) {
       const damp = Math.max(0, 1 - FRICTION * dt);
       player.velocity.x *= damp;
@@ -90,6 +123,7 @@ export function createPlayer(colliders) {
     const nextX = player.position.x + player.velocity.x * dt;
     if (!overlaps(nextX, player.position.y, player.position.z, player.height, 0.04)) player.position.x = nextX;
     else player.velocity.x = 0;
+
     const nextZ = player.position.z + player.velocity.z * dt;
     if (!overlaps(player.position.x, player.position.y, nextZ, player.height, 0.04)) player.position.z = nextZ;
     else player.velocity.z = 0;
@@ -101,23 +135,16 @@ export function createPlayer(colliders) {
       player.position.y = hit.max.y;
       player.velocity.y = 0;
       player.onGround = true;
-    } else if (hit) {
-      player.position.y = hit.min.y - player.height;
-      player.velocity.y = 0;
     }
-    if (player.position.y < 0) {
-      player.position.y = 0;
-      player.velocity.y = 0;
-      player.onGround = true;
-    }
-    player.velocity.y = Math.max(-30, player.velocity.y);
   }
 
   return {
     state: player,
-    step,
     look,
     recoil,
+    takeDamage,
+    respawn,
+    step,
     groundSpeed() {
       return Math.hypot(player.velocity.x, player.velocity.z);
     },
