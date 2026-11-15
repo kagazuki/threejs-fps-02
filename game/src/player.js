@@ -70,7 +70,8 @@ export function createPlayer(colliders) {
       wish.set(-sin * forward + cos * strafe, 0, -cos * forward - sin * strafe).normalize();
     }
 
-    const speed = player.crouching ? CROUCH_SPEED : WALK_SPEED;
+    const sprinting = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !player.crouching;
+    const speed = player.crouching ? CROUCH_SPEED : (sprinting ? 7.5 : WALK_SPEED);
     const blend = Math.min(1, (player.onGround ? GROUND_ACCEL : AIR_ACCEL) * dt / speed);
     player.velocity.x += (wish.x * speed - player.velocity.x) * blend;
     player.velocity.z += (wish.z * speed - player.velocity.z) * blend;
